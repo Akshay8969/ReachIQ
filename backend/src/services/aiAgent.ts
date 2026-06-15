@@ -4,22 +4,14 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 const MODEL = 'gemini-1.5-flash';
 
 // ─── Core Gemini REST call ────────────────────────────────────────────────────
-// AQ. keys are OAuth2 Bearer tokens; standard AIza. keys use ?key= on v1.
 async function geminiCall(contents: any[]): Promise<string> {
   const body = {
     contents,
     generationConfig: { temperature: 0.7, maxOutputTokens: 1024 },
   };
 
-  const isBearer = GEMINI_API_KEY.startsWith('AQ.');
-  const url = isBearer
-    ? `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`
-    : `https://generativelanguage.googleapis.com/v1/models/${MODEL}:generateContent?key=${GEMINI_API_KEY}`;
-
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${GEMINI_API_KEY}`;
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (isBearer) {
-    headers['Authorization'] = `Bearer ${GEMINI_API_KEY}`;
-  }
 
   const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
 
