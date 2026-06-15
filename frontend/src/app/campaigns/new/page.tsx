@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { segmentsApi, aiApi, campaignsApi } from '@/lib/api';
 
@@ -12,7 +12,7 @@ const CHANNELS = [
 
 const GOALS = ['Promote a sale', 'Win-back lapsed customers', 'Announce new arrivals', 'Loyalty / VIP reward', 'Product launch', 'Seasonal campaign'];
 
-export default function NewCampaignPage() {
+function NewCampaignContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const presetSegment = searchParams.get('segment');
@@ -355,5 +355,13 @@ export default function NewCampaignPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function NewCampaignPage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <NewCampaignContent />
+    </Suspense>
   );
 }
