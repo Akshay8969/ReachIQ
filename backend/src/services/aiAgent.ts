@@ -164,8 +164,22 @@ function buildFallbackSql(description: string): string {
   const cityMatch = d.match(/\b(mumbai|delhi|bangalore|hyderabad|chennai|pune|kolkata|jaipur|ahmedabad|surat)\b/);
   if (cityMatch) conditions.push(`city = '${cityMatch[1].charAt(0).toUpperCase() + cityMatch[1].slice(1)}'`);
 
-  const spendMatch = d.match(/spent?\s+(?:more than|over|above|>)\s*[₹rs\s]*(\d+)/i);
-  if (spendMatch) conditions.push(`total_spend > ${spendMatch[1]}`);
+  // Spend
+  const spendBetweenMatch = d.match(/between\s*[₹rs\s]*(\d+)\s*(?:to|and|-)\s*[₹rs\s]*(\d+)/i);
+  const spendOverMatch = d.match(/spent?\s+(?:more than|over|above|>)\s*[₹rs\s]*(\d+)/i);
+  const spendUnderMatch = d.match(/spent?\s+(?:less than|under|below|<)\s*[₹rs\s]*(\d+)/i);
+
+  if (spendBetweenMatch) {
+    conditions.push(`total_spend >= ${spendBetweenMatch[1]} AND total_spend <= ${spendBetweenMatch[2]}`);
+  } else if (spendOverMatch) {
+    conditions.push(`total_spend > ${spendOverMatch[1]}`);
+  } else if (spendUnderMatch) {
+    conditions.push(`total_spend < ${spendUnderMatch[1]}`);
+  }
+
+  // Age
+  const ageMatch = d.match(/aged?\s*(\d+)\s*(?:to|-|and)\s*(\d+)/i);
+  if (ageMatch) conditions.push(`age >= ${ageMatch[1]} AND age <= ${ageMatch[2]}`);
 
   const daysMatch = d.match(/(\d+)\s*days/i);
   if (daysMatch && (d.includes("haven't") || d.includes('not bought') || d.includes('inactive') || d.includes('lapsed'))) {
