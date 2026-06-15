@@ -3,13 +3,18 @@ import { getDb } from '../db/database';
 import { v4 as uuidv4 } from 'uuid';
 import multer from 'multer';
 import { parse } from 'csv-parse/sync';
+import { authenticateToken } from '../middleware/auth';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
+// All customer routes require authentication
+router.use(authenticateToken);
+
 // GET /customers - list with pagination & search
 router.get('/', (req: Request, res: Response) => {
   const db = getDb();
+  const userId = req.user!.id;
   const { page = '1', limit = '20', search = '', city = '', gender = '', sort = 'created_at', order = 'desc' } = req.query as Record<string, string>;
 
   const offset = (parseInt(page) - 1) * parseInt(limit);
@@ -19,8 +24,8 @@ router.get('/', (req: Request, res: Response) => {
   const sortCol = allowedSort.includes(sort) ? sort : 'created_at';
   const sortDir = order === 'asc' ? 'ASC' : 'DESC';
 
-  let whereClause = 'WHERE 1=1';
-  const params: any[] = [];
+  let whereClause = 'WHERE user_id = ?';
+  const params: any[] = [userId];
 
   if (search) {
     whereClause += ' AND (name LIKE ? OR email LIKE ? OR city LIKE ?)';
@@ -41,8 +46,10 @@ router.get('/', (req: Request, res: Response) => {
 });
 
 // GET /customers/stats - aggregate stats
-router.get('/stats', (_req: Request, res: Response) => {
+router.get('/stats', (req: Request, res: Response) => {
   const db = getDb();
+  const userId = req.user!.id;
+
   const stats = db.prepare(`
     SELECT
       COUNT(*) as total_customers,
@@ -51,16 +58,16 @@ router.get('/stats', (_req: Request, res: Response) => {
       AVG(total_orders) as avg_orders,
       COUNT(CASE WHEN created_at > date('now', '-30 days') THEN 1 END) as new_this_month,
       COUNT(CASE WHEN last_order_date < date('now', '-90 days') OR last_order_date IS NULL THEN 1 END) as lapsed_count
-    FROM customers
-  `).get();
+    FROM customers WHERE user_id = ?
+  `).get(userId);
 
   const cityBreakdown = db.prepare(`
-    SELECT city, COUNT(*) as count FROM customers GROUP BY city ORDER BY count DESC LIMIT 6
-  `).all();
+    SELECT city, COUNT(*) as count FROM customers WHERE user_id = ? GROUP BY city ORDER BY count DESC LIMIT 6
+  `).all(userId);
 
   const genderBreakdown = db.prepare(`
-    SELECT gender, COUNT(*) as count FROM customers GROUP BY gender
-  `).all();
+    SELECT gender, COUNT(*) as count FROM customers WHERE user_id = ? GROUP BY gender
+  `).all(userId);
 
   res.json({ ...stats as object, cityBreakdown, genderBreakdown });
 });
@@ -68,7 +75,8 @@ router.get('/stats', (_req: Request, res: Response) => {
 // GET /customers/:id
 router.get('/:id', (req: Request, res: Response) => {
   const db = getDb();
-  const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(req.params.id);
+  const userId = req.user!.id;
+  const customer = db.prepare('SELECT * FROM customers WHERE id = ? AND user_id = ?').get(req.params.id, userId);
   if (!customer) return res.status(404).json({ error: 'Customer not found' });
 
   const orders = db.prepare('SELECT * FROM orders WHERE customer_id = ? ORDER BY created_at DESC LIMIT 20').all(req.params.id);
@@ -84,15 +92,16 @@ router.get('/:id', (req: Request, res: Response) => {
 // POST /customers - create single customer
 router.post('/', (req: Request, res: Response) => {
   const db = getDb();
+  const userId = req.user!.id;
   const { name, email, phone, age, gender, city, tags } = req.body;
 
   if (!name || !email) return res.status(400).json({ error: 'name and email are required' });
 
   const id = uuidv4();
   db.prepare(`
-    INSERT INTO customers (id, name, email, phone, age, gender, city, tags)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, name, email, phone || null, age || null, gender || null, city || null, JSON.stringify(tags || []));
+    INSERT INTO customers (id, user_id, name, email, phone, age, gender, city, tags)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, userId, name, email, phone || null, age || null, gender || null, city || null, JSON.stringify(tags || []));
 
   res.status(201).json({ id, message: 'Customer created' });
 });
@@ -102,6 +111,7 @@ router.post('/import', upload.single('file'), (req: Request, res: Response) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
   const db = getDb();
+  const userId = req.user!.id;
   const content = req.file.buffer.toString('utf-8');
 
   let records: any[];
@@ -112,8 +122,8 @@ router.post('/import', upload.single('file'), (req: Request, res: Response) => {
   }
 
   const insert = db.prepare(`
-    INSERT OR IGNORE INTO customers (id, name, email, phone, age, gender, city, tags)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT OR IGNORE INTO customers (id, user_id, name, email, phone, age, gender, city, tags)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   let imported = 0;
@@ -123,7 +133,7 @@ router.post('/import', upload.single('file'), (req: Request, res: Response) => {
     for (const row of records) {
       if (!row.name || !row.email) { skipped++; continue; }
       try {
-        insert.run(uuidv4(), row.name, row.email, row.phone || null, row.age ? parseInt(row.age) : null, row.gender || null, row.city || null, '[]');
+        insert.run(uuidv4(), userId, row.name, row.email, row.phone || null, row.age ? parseInt(row.age) : null, row.gender || null, row.city || null, '[]');
         imported++;
       } catch { skipped++; }
     }
@@ -136,17 +146,19 @@ router.post('/import', upload.single('file'), (req: Request, res: Response) => {
 // PUT /customers/:id
 router.put('/:id', (req: Request, res: Response) => {
   const db = getDb();
+  const userId = req.user!.id;
   const { name, phone, age, gender, city, tags } = req.body;
   db.prepare(`
-    UPDATE customers SET name=?, phone=?, age=?, gender=?, city=?, tags=? WHERE id=?
-  `).run(name, phone, age, gender, city, JSON.stringify(tags || []), req.params.id);
+    UPDATE customers SET name=?, phone=?, age=?, gender=?, city=?, tags=? WHERE id=? AND user_id=?
+  `).run(name, phone, age, gender, city, JSON.stringify(tags || []), req.params.id, userId);
   res.json({ message: 'Updated' });
 });
 
 // DELETE /customers/:id
 router.delete('/:id', (req: Request, res: Response) => {
   const db = getDb();
-  db.prepare('DELETE FROM customers WHERE id = ?').run(req.params.id);
+  const userId = req.user!.id;
+  db.prepare('DELETE FROM customers WHERE id = ? AND user_id = ?').run(req.params.id, userId);
   res.json({ message: 'Deleted' });
 });
 

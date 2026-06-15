@@ -1,7 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useState } from 'react';
+import { useAuth } from '@/context/AuthContext';
 
 const navItems = [
   { href: '/', label: 'Dashboard', icon: '⬛', section: 'Overview' },
@@ -18,6 +18,7 @@ interface SidebarProps {
 
 export default function Sidebar({ onAiToggle, aiOpen }: SidebarProps) {
   const pathname = usePathname();
+  const { user, logout } = useAuth();
 
   const sections = [...new Set(navItems.map(n => n.section))];
 
@@ -54,12 +55,15 @@ export default function Sidebar({ onAiToggle, aiOpen }: SidebarProps) {
 
       <div className="sidebar-footer">
         <div className="brand-chip">
-          <div className="brand-avatar">S</div>
+          <div className="brand-avatar">{user?.company_name?.[0]?.toUpperCase() || 'C'}</div>
           <div className="brand-info">
-            <div className="brand-name">StyleHub</div>
-            <div className="brand-type">Fashion Brand</div>
+            <div className="brand-name">{user?.company_name || 'My Company'}</div>
+            <div className="brand-type">{user?.email || ''}</div>
           </div>
         </div>
+        <button onClick={logout} className="sidebar-logout-btn" title="Sign out">
+          ⎋
+        </button>
       </div>
     </aside>
   );

@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { getDb } from './database';
+import bcrypt from 'bcryptjs';
 
 const CITIES = ['Mumbai', 'Delhi', 'Bangalore', 'Hyderabad', 'Chennai', 'Pune', 'Kolkata', 'Ahmedabad', 'Jaipur', 'Surat'];
 const CATEGORIES = ['footwear', 'apparel', 'accessories', 'bags', 'jewellery', 'sportswear', 'ethnic_wear', 'western_wear'];
@@ -30,32 +31,50 @@ function randomPhone(): string {
   return `+91${rand(7000000000, 9999999999)}`;
 }
 
-export function seed() {
+export async function seed() {
   const db = getDb();
 
-  const existingCount = (db.prepare('SELECT COUNT(*) as c FROM customers').get() as { c: number }).c;
+  const existingCount = (db.prepare('SELECT COUNT(*) as c FROM users').get() as { c: number }).c;
   if (existingCount > 0) {
-    console.log(`✓ Database already seeded with ${existingCount} customers`);
+    console.log(`✓ Database already seeded with ${existingCount} users`);
     return;
   }
 
   console.log('🌱 Seeding database...');
 
+  const insertUser = db.prepare(`
+    INSERT INTO users (id, company_name, email, password_hash, created_at)
+    VALUES (@id, @company_name, @email, @password_hash, @created_at)
+  `);
+
   const insertCustomer = db.prepare(`
-    INSERT INTO customers (id, name, email, phone, age, gender, city, total_orders, total_spend, last_order_date, tags, created_at)
-    VALUES (@id, @name, @email, @phone, @age, @gender, @city, @total_orders, @total_spend, @last_order_date, @tags, @created_at)
+    INSERT INTO customers (id, user_id, name, email, phone, age, gender, city, total_orders, total_spend, last_order_date, tags, created_at)
+    VALUES (@id, @user_id, @name, @email, @phone, @age, @gender, @city, @total_orders, @total_spend, @last_order_date, @tags, @created_at)
   `);
 
   const insertOrder = db.prepare(`
-    INSERT INTO orders (id, customer_id, amount, product_category, status, created_at)
-    VALUES (@id, @customer_id, @amount, @product_category, @status, @created_at)
+    INSERT INTO orders (id, user_id, customer_id, amount, product_category, status, created_at)
+    VALUES (@id, @user_id, @customer_id, @amount, @product_category, @status, @created_at)
   `);
 
   const updateCustomer = db.prepare(`
     UPDATE customers SET total_orders = @total_orders, total_spend = @total_spend, last_order_date = @last_order_date WHERE id = @id
   `);
 
+  const userId = uuidv4();
+  const salt = await bcrypt.genSalt(10);
+  const password_hash = await bcrypt.hash('password123', salt);
+
   const seedAll = db.transaction(() => {
+    // 1. Create a default user
+    insertUser.run({
+      id: userId,
+      company_name: 'ReachIQ Demo',
+      email: 'demo@reachiq.com',
+      password_hash,
+      created_at: new Date().toISOString(),
+    });
+
     const customerIds: string[] = [];
 
     // Create 500 customers
@@ -81,6 +100,7 @@ export function seed() {
 
       insertCustomer.run({
         id,
+        user_id: userId,
         name,
         email: `${firstName.toLowerCase()}.${lastName.toLowerCase()}${rand(1, 999)}@${randFrom(['gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com'])}`,
         phone: randomPhone(),
@@ -108,6 +128,7 @@ export function seed() {
 
       insertOrder.run({
         id: uuidv4(),
+        user_id: userId,
         customer_id: customerId,
         amount,
         product_category: randFrom(CATEGORIES),
@@ -139,8 +160,8 @@ export function seed() {
 
     // Seed some initial segments
     const insertSegment = db.prepare(`
-      INSERT INTO segments (id, name, description, filter_sql, customer_count, created_by, created_at)
-      VALUES (@id, @name, @description, @filter_sql, @customer_count, @created_by, @created_at)
+      INSERT INTO segments (id, user_id, name, description, filter_sql, customer_count, created_by, created_at)
+      VALUES (@id, @user_id, @name, @description, @filter_sql, @customer_count, @created_by, @created_at)
     `);
 
     const segments = [
@@ -182,17 +203,24 @@ export function seed() {
     ];
 
     for (const seg of segments) {
-      const count = (db.prepare(seg.filter_sql.replace('SELECT *', 'SELECT COUNT(*) as c')).get() as any).c || 0;
+      // For seeding, append user_id filter manually to compute count accurately for this user
+      const countQuery = seg.filter_sql.replace('SELECT * FROM customers WHERE ', 'SELECT COUNT(*) as c FROM customers WHERE user_id = ? AND (');
+      const count = (db.prepare(countQuery + ')').get(userId) as any).c || 0;
       insertSegment.run({
         ...seg,
+        user_id: userId,
         customer_count: count,
         created_at: dateInPast(rand(1, 20)),
       });
     }
   });
 
+  // seedAll is a sync transaction
   seedAll();
-  console.log('✅ Seeding complete! 500 customers, 2000 orders, 5 segments created.');
+  console.log('✅ Seeding complete! 1 User, 500 customers, 2000 orders, 5 segments created.');
 }
 
-seed();
+// Only run if called directly
+if (require.main === module) {
+  seed().catch(console.error);
+}

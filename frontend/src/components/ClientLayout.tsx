@@ -1,10 +1,39 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
 import Sidebar from './Sidebar';
 import AIChatPanel from './AIChatPanel';
+import { useAuth } from '@/context/AuthContext';
+
+const AUTH_ROUTES = ['/login', '/register'];
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
   const [aiOpen, setAiOpen] = useState(false);
+  const { user, isLoading } = useAuth();
+  const pathname = usePathname();
+  const router = useRouter();
+
+  const isAuthPage = AUTH_ROUTES.includes(pathname);
+
+  useEffect(() => {
+    if (!isLoading && !user && !isAuthPage) {
+      router.push('/login');
+    }
+  }, [user, isLoading, isAuthPage, router]);
+
+  // Show auth pages without sidebar
+  if (isAuthPage) {
+    return <>{children}</>;
+  }
+
+  // Show a loading screen while checking auth state
+  if (isLoading || (!user && !isAuthPage)) {
+    return (
+      <div className="auth-loading">
+        <div className="auth-loading-spinner" />
+      </div>
+    );
+  }
 
   return (
     <div className="app-shell">
@@ -21,3 +50,4 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     </div>
   );
 }
+

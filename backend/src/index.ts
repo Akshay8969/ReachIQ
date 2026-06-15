@@ -7,6 +7,7 @@ import customersRouter from './routes/customers';
 import segmentsRouter from './routes/segments';
 import campaignsRouter from './routes/campaigns';
 import aiRouter from './routes/ai';
+import authRouter from './routes/auth';
 
 dotenv.config();
 
@@ -31,12 +32,13 @@ app.use(express.urlencoded({ extended: true }));
 // ─── Initialize DB & Seed ──────────────────────────────────────────────────────
 try {
   getDb(); // Initialize schema
-  seed();  // Seed if empty
+  seed().catch((e) => console.error('Seed error:', e)); // Seed if empty (async)
 } catch (e) {
   console.error('DB initialization error:', e);
 }
 
 // ─── Routes ────────────────────────────────────────────────────────────────────
+app.use('/api/auth', authRouter);
 app.use('/api/customers', customersRouter);
 app.use('/api/segments', segmentsRouter);
 app.use('/api/campaigns', campaignsRouter);

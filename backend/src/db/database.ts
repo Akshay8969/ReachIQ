@@ -19,11 +19,30 @@ export function getDb(): Database.Database {
 }
 
 function initSchema(db: Database.Database) {
+  // Drop tables to cleanly apply the multi-tenant migration
   db.exec(`
+    DROP TABLE IF EXISTS communication_log;
+    DROP TABLE IF EXISTS campaigns;
+    DROP TABLE IF EXISTS segments;
+    DROP TABLE IF EXISTS orders;
+    DROP TABLE IF EXISTS customers;
+    DROP TABLE IF EXISTS users;
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      company_name TEXT NOT NULL,
+      email TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS customers (
       id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
-      email TEXT UNIQUE NOT NULL,
+      email TEXT NOT NULL,
       phone TEXT,
       age INTEGER,
       gender TEXT CHECK(gender IN ('male','female','other')),
@@ -32,11 +51,13 @@ function initSchema(db: Database.Database) {
       total_spend REAL DEFAULT 0,
       last_order_date TEXT,
       tags TEXT DEFAULT '[]',
-      created_at TEXT DEFAULT (datetime('now'))
+      created_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(email, user_id)
     );
 
     CREATE TABLE IF NOT EXISTS orders (
       id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
       amount REAL NOT NULL,
       product_category TEXT NOT NULL,
@@ -46,6 +67,7 @@ function initSchema(db: Database.Database) {
 
     CREATE TABLE IF NOT EXISTS segments (
       id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       description TEXT,
       filter_sql TEXT NOT NULL,
@@ -56,6 +78,7 @@ function initSchema(db: Database.Database) {
 
     CREATE TABLE IF NOT EXISTS campaigns (
       id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       segment_id TEXT REFERENCES segments(id),
       channel TEXT NOT NULL CHECK(channel IN ('whatsapp','sms','email','rcs')),
@@ -73,6 +96,7 @@ function initSchema(db: Database.Database) {
 
     CREATE TABLE IF NOT EXISTS communication_log (
       id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       campaign_id TEXT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
       customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
       channel TEXT NOT NULL,
@@ -83,11 +107,16 @@ function initSchema(db: Database.Database) {
       updated_at TEXT DEFAULT (datetime('now'))
     );
 
+    CREATE INDEX IF NOT EXISTS idx_customers_user_id ON customers(user_id);
+    CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);
+    CREATE INDEX IF NOT EXISTS idx_segments_user_id ON segments(user_id);
+    CREATE INDEX IF NOT EXISTS idx_campaigns_user_id ON campaigns(user_id);
+    CREATE INDEX IF NOT EXISTS idx_comm_log_user_id ON communication_log(user_id);
+    
     CREATE INDEX IF NOT EXISTS idx_orders_customer_id ON orders(customer_id);
     CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at);
     CREATE INDEX IF NOT EXISTS idx_comm_log_campaign ON communication_log(campaign_id);
     CREATE INDEX IF NOT EXISTS idx_comm_log_status ON communication_log(status);
-    CREATE INDEX IF NOT EXISTS idx_customers_email ON customers(email);
   `);
 }
 

@@ -1,7 +1,11 @@
 import { Router, Request, Response } from 'express';
 import { chat, naturalLanguageToSegment, draftMessage, ChatMessage } from '../services/aiAgent';
+import { authenticateToken } from '../middleware/auth';
 
 const router = Router();
+
+// All AI routes require authentication
+router.use(authenticateToken);
 
 // POST /ai/chat - main conversational AI endpoint
 router.post('/chat', async (req: Request, res: Response) => {

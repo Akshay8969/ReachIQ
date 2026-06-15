@@ -2,27 +2,35 @@ import { Router, Request, Response } from 'express';
 import { getDb } from '../db/database';
 import { v4 as uuidv4 } from 'uuid';
 import { dispatchCampaign } from '../services/channelService';
+import { authenticateToken } from '../middleware/auth';
 
 const router = Router();
 
 // SSE clients map: campaignId -> response[]
 export const sseClients: Map<string, Response[]> = new Map();
 
+// All campaign routes require authentication
+router.use(authenticateToken);
+
 // GET /campaigns
-router.get('/', (_req: Request, res: Response) => {
+router.get('/', (req: Request, res: Response) => {
   const db = getDb();
+  const userId = req.user!.id;
   const campaigns = db.prepare(`
     SELECT c.*, s.name as segment_name, s.customer_count as segment_size
     FROM campaigns c
     LEFT JOIN segments s ON c.segment_id = s.id
+    WHERE c.user_id = ?
     ORDER BY c.created_at DESC
-  `).all();
+  `).all(userId);
   res.json({ campaigns });
 });
 
 // GET /campaigns/overview - dashboard stats
-router.get('/overview', (_req: Request, res: Response) => {
+router.get('/overview', (req: Request, res: Response) => {
   const db = getDb();
+  const userId = req.user!.id;
+
   const stats = db.prepare(`
     SELECT
       COUNT(*) as total_campaigns,
@@ -31,19 +39,20 @@ router.get('/overview', (_req: Request, res: Response) => {
       SUM(clicked_count) as total_clicked,
       ROUND(CAST(SUM(delivered_count) AS REAL) / NULLIF(SUM(sent_count), 0) * 100, 1) as delivery_rate,
       ROUND(CAST(SUM(clicked_count) AS REAL) / NULLIF(SUM(delivered_count), 0) * 100, 1) as click_rate
-    FROM campaigns
-  `).get();
+    FROM campaigns WHERE user_id = ?
+  `).get(userId);
 
   const recentCampaigns = db.prepare(`
     SELECT c.*, s.name as segment_name FROM campaigns c
     LEFT JOIN segments s ON c.segment_id = s.id
+    WHERE c.user_id = ?
     ORDER BY c.created_at DESC LIMIT 5
-  `).all();
+  `).all(userId);
 
   const channelBreakdown = db.prepare(`
     SELECT channel, COUNT(*) as count, SUM(sent_count) as total_sent
-    FROM campaigns GROUP BY channel
-  `).all();
+    FROM campaigns WHERE user_id = ? GROUP BY channel
+  `).all(userId);
 
   res.json({ stats, recentCampaigns, channelBreakdown });
 });
@@ -51,11 +60,12 @@ router.get('/overview', (_req: Request, res: Response) => {
 // GET /campaigns/:id
 router.get('/:id', (req: Request, res: Response) => {
   const db = getDb();
+  const userId = req.user!.id;
   const campaign = db.prepare(`
     SELECT c.*, s.name as segment_name, s.filter_sql
     FROM campaigns c LEFT JOIN segments s ON c.segment_id = s.id
-    WHERE c.id = ?
-  `).get(req.params.id);
+    WHERE c.id = ? AND c.user_id = ?
+  `).get(req.params.id, userId);
   if (!campaign) return res.status(404).json({ error: 'Campaign not found' });
 
   const logs = db.prepare(`
@@ -70,6 +80,7 @@ router.get('/:id', (req: Request, res: Response) => {
 // POST /campaigns - create campaign (draft)
 router.post('/', (req: Request, res: Response) => {
   const db = getDb();
+  const userId = req.user!.id;
   const { name, segment_id, channel, message_template } = req.body;
   if (!name || !channel || !message_template) {
     return res.status(400).json({ error: 'name, channel, and message_template required' });
@@ -77,9 +88,9 @@ router.post('/', (req: Request, res: Response) => {
 
   const id = uuidv4();
   db.prepare(`
-    INSERT INTO campaigns (id, name, segment_id, channel, message_template, status)
-    VALUES (?, ?, ?, ?, ?, 'draft')
-  `).run(id, name, segment_id || null, channel, message_template);
+    INSERT INTO campaigns (id, user_id, name, segment_id, channel, message_template, status)
+    VALUES (?, ?, ?, ?, ?, ?, 'draft')
+  `).run(id, userId, name, segment_id || null, channel, message_template);
 
   res.status(201).json({ id, message: 'Campaign draft created' });
 });
@@ -87,23 +98,29 @@ router.post('/', (req: Request, res: Response) => {
 // POST /campaigns/:id/launch - launch campaign
 router.post('/:id/launch', async (req: Request, res: Response) => {
   const db = getDb();
-  const campaign = db.prepare('SELECT * FROM campaigns WHERE id = ?').get(req.params.id) as any;
+  const userId = req.user!.id;
+  const campaign = db.prepare('SELECT * FROM campaigns WHERE id = ? AND user_id = ?').get(req.params.id, userId) as any;
   if (!campaign) return res.status(404).json({ error: 'Campaign not found' });
   if (campaign.status !== 'draft') return res.status(400).json({ error: 'Campaign already launched' });
 
-  // Get target customers from segment
+  // Get target customers from segment (must belong to same user)
   let customers: any[] = [];
   if (campaign.segment_id) {
-    const segment = db.prepare('SELECT * FROM segments WHERE id = ?').get(campaign.segment_id) as any;
+    const segment = db.prepare('SELECT * FROM segments WHERE id = ? AND user_id = ?').get(campaign.segment_id, userId) as any;
     if (segment) {
       try {
-        customers = db.prepare(`${segment.filter_sql} LIMIT 500`).all();
+        // Inject user_id filter into segment SQL to enforce isolation
+        const safeSql = segment.filter_sql.replace(
+          /FROM customers/i,
+          `FROM customers WHERE user_id = '${userId}' AND 1=1 --`
+        );
+        customers = db.prepare(`${safeSql} LIMIT 500`).all();
       } catch (e: any) {
         return res.status(400).json({ error: `Segment SQL error: ${e.message}` });
       }
     }
   } else {
-    customers = db.prepare('SELECT * FROM customers LIMIT 500').all();
+    customers = db.prepare('SELECT * FROM customers WHERE user_id = ? LIMIT 500').all(userId);
   }
 
   if (customers.length === 0) return res.status(400).json({ error: 'No customers in this segment' });
@@ -115,15 +132,15 @@ router.post('/:id/launch', async (req: Request, res: Response) => {
 
   // Create communication logs
   const insertLog = db.prepare(`
-    INSERT INTO communication_log (id, campaign_id, customer_id, channel, recipient, message, status, sent_at)
-    VALUES (?, ?, ?, ?, ?, ?, 'sent', datetime('now'))
+    INSERT INTO communication_log (id, user_id, campaign_id, customer_id, channel, recipient, message, status, sent_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'sent', datetime('now'))
   `);
 
   const insertAllLogs = db.transaction(() => {
     for (const customer of customers) {
       const recipient = campaign.channel === 'email' ? customer.email : customer.phone;
       const personalizedMsg = campaign.message_template.replace(/\{name\}/g, customer.name.split(' ')[0]);
-      insertLog.run(uuidv4(), campaign.id, customer.id, campaign.channel, recipient, personalizedMsg);
+      insertLog.run(uuidv4(), userId, campaign.id, customer.id, campaign.channel, recipient, personalizedMsg);
     }
   });
   insertAllLogs();
