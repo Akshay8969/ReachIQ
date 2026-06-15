@@ -28,7 +28,7 @@ async function geminiCall(contents: any[]): Promise<string> {
     throw new Error(`Gemini API error ${res.status}: ${errText}`);
   }
 
-  const data = await res.json();
+  const data = await res.json() as any;
   return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
 }
 
