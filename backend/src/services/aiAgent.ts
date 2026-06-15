@@ -10,7 +10,7 @@ async function geminiCall(contents: any[]): Promise<string> {
     generationConfig: { temperature: 0.7, maxOutputTokens: 1024 },
   };
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+  const url = `https://generativelanguage.googleapis.com/v1/models/${MODEL}:generateContent?key=${GEMINI_API_KEY}`;
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
 
   const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
