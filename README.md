@@ -4,7 +4,7 @@
 
 ## 🚀 Live Demo
 
-- ([https://reachiq-frontend.vercel.app](https://reach-iq-zeta.vercel.app/))
+[https://reachiq-frontend.vercel.app](https://reach-iq-zeta.vercel.app/)
 
 
 ## 📦 Tech Stack
