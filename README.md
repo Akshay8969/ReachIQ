@@ -4,8 +4,8 @@
 
 ## 🚀 Live Demo
 
-- **Frontend**: [Deployed on Vercel]
-- **Backend**: [Deployed on Railway]
+- **Frontend**: [Deployed on Vercel](https://reachiq-frontend.vercel.app)
+- **Backend API**: [Deployed on Railway](https://reachiq-backend-production.up.railway.app)
 
 ## 📦 Tech Stack
 
@@ -48,16 +48,19 @@ Frontend (Next.js)         Backend (Express)          Channel Service (Stub)
 - **Synchronous AI calls**: Kept simple for UX. In production, these would be queued (SQS/Pub-Sub) and streamed.
 - **Channel Service in-process**: Per spec. Production would be a separate microservice with retries, dead-letter queues.
 - **SSE over WebSockets**: Unidirectional push is all we need for campaign monitoring. WebSockets would be overkill.
-- **No auth**: Single-brand demo scope. Production would add multi-tenant auth (e.g., Clerk/Auth0).
+- **Multi-Tenant Auth**: Built-in JWT-based authentication allows multiple companies to register and use the platform with strict SQL-level data isolation.
 
 ## 🗃️ Data Model
 
 ```sql
-customers (id, name, email, phone, age, gender, city, total_orders, total_spend, last_order_date, tags, created_at)
-orders    (id, customer_id, amount, product_category, status, created_at)
-segments  (id, name, description, filter_sql, customer_count, created_by, created_at)
-campaigns (id, name, segment_id, channel, message_template, status, sent_count, delivered_count, failed_count, opened_count, clicked_count, launched_at)
-communication_log (id, campaign_id, customer_id, channel, recipient, message, status, sent_at, updated_at)
+```sql
+users     (id, company_name, email, password_hash, created_at)
+customers (id, user_id, name, email, phone, age, gender, city, total_orders, total_spend, last_order_date, tags, created_at)
+orders    (id, user_id, customer_id, amount, product_category, status, created_at)
+segments  (id, user_id, name, description, filter_sql, customer_count, created_by, created_at)
+campaigns (id, user_id, name, segment_id, channel, message_template, status, sent_count, delivered_count, failed_count, opened_count, clicked_count, launched_at)
+communication_log (id, user_id, campaign_id, customer_id, channel, recipient, message, status, sent_at, updated_at)
+```
 ```
 
 ## 🔄 Channel Service Flow
