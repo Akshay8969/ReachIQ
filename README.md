@@ -4,8 +4,8 @@
 
 ## 🚀 Live Demo
 
-- **Frontend**: [Deployed on Vercel](https://reachiq-frontend.vercel.app)
-- **Backend API**: [Deployed on Railway](https://reachiq-backend-production.up.railway.app)
+- ([https://reachiq-frontend.vercel.app](https://reach-iq-zeta.vercel.app/))
+
 
 ## 📦 Tech Stack
 
