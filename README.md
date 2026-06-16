@@ -1,6 +1,6 @@
 # ReachIQ — AI-Native Mini CRM for Reaching Shoppers
 
-> Built for the Xeno Engineering Take-Home Assignment
+
 
 ## 🚀 Live Demo
 
@@ -24,7 +24,7 @@ AI isn't bolted on — it's woven into every core workflow:
 1. **Natural Language → SQL Segments**: "Find women aged 25-35 who haven't purchased in 90 days" → Gemini generates SQLite query → live preview
 2. **AI Message Drafting**: Pick channel + goal → Gemini writes channel-appropriate copy with personalisation tokens
 3. **Channel Suggestion**: Gemini recommends best channel based on audience + campaign goal
-4. **Insight Chat**: Ask anything about your data — "What's my best performing campaign?" — Gemini uses function calling to query the DB and return structured answers
+
 
 ## 🏗️ Architecture
 
